@@ -1,5 +1,9 @@
 import sys
 
+from linux_mouse import (
+    LinuxMouseBackend,
+)
+
 from PySide6.QtGui import (
     QKeySequence,
     QShortcut,
@@ -105,7 +109,8 @@ class MainWindow(QMainWindow):
         # -------------------------
         
         self.click_timer = QTimer(self)
-        
+        self.mouse_backend = LinuxMouseBackend()
+
         self.click_timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.click_timer.timeout.connect(self.timer_tick)
 
@@ -136,7 +141,8 @@ class MainWindow(QMainWindow):
         self.click_timer.setInterval(new_interval)
 
     def timer_tick(self):
-        print("CLICK")
+        button = self.mouse_button_input.currentText()
+        self.mouse_backend.click(button)
 
 
 app = QApplication(sys.argv)
