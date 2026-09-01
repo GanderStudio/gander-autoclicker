@@ -4,6 +4,12 @@ from PySide6.QtGui import (
     QKeySequence,
     QShortcut,
 )
+
+from PySide6.QtCore import (
+    QTimer, 
+    Qt,
+)
+
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -82,6 +88,7 @@ class MainWindow(QMainWindow):
         )
         self.hotkey_input.keySequenceChanged.connect(self.update_hotkey)
         self.toggle_shortcut.activated.connect(self.toggle_autoclicker)
+        self.cps_input.valueChanged.connect(self.update_timer)
 
 
 
@@ -91,8 +98,19 @@ class MainWindow(QMainWindow):
 
         self.status_label = QLabel("Status: Stopped")
         layout.addWidget(self.status_label)
-
         self.setCentralWidget(container)
+
+        # -------------------------
+        # Clicking timer
+        # -------------------------
+        
+        self.click_timer = QTimer(self)
+        
+        self.click_timer.setTimerType(Qt.TimerType.PreciseTimer)
+        self.click_timer.timeout.connect(self.timer_tick)
+
+        self.update_timer(self.cps_input.value())
+
 
 
     def toggle_autoclicker(self):
@@ -101,12 +119,24 @@ class MainWindow(QMainWindow):
         if self.is_running:
             self.state_button.setText("Stop")
             self.status_label.setText("Status: Running")
+            self.click_timer.start()
         else:
             self.state_button.setText("Start")
             self.status_label.setText("Status: Stopped")
+            self.click_timer.stop()
 
     def update_hotkey(self, new_hotkey):
         self.toggle_shortcut.setKey(new_hotkey)
+
+    def update_timer(self, cps):
+        new_interval = max(
+        1,
+        round(1000 / cps)
+        )
+        self.click_timer.setInterval(new_interval)
+
+    def timer_tick(self):
+        print("CLICK")
 
 
 app = QApplication(sys.argv)
