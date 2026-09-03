@@ -1,4 +1,7 @@
-from evdev import UInput, ecodes
+from evdev import (
+    UInput,
+    ecodes,
+)
 
 
 class LinuxMouseBackend:

@@ -142,9 +142,9 @@ class MainWindow(QMainWindow):
 
 
 
-        # -------------------------
-        # functions
-        # -------------------------
+    # -------------------------
+    # functions
+    # -------------------------
 
     def toggle_autoclicker(self):
         self.is_running = not self.is_running
@@ -158,6 +158,13 @@ class MainWindow(QMainWindow):
             self.status_label.setText("Status: Stopped")
             self.click_timer.stop()
 
+    def timer_tick(self):
+        button = self.mouse_button_input.currentText()
+        self.mouse_backend.click(button)
+
+    # -------------------------
+    # saving and changing variables
+    # -------------------------
 
     def update_hotkey(self, new_hotkey):
         self.toggle_shortcut.setKey(new_hotkey)
@@ -177,11 +184,6 @@ class MainWindow(QMainWindow):
 
     def save_mouse_button(self, button):
         self.settings.setValue("mouse_button", button)
-
-
-    def timer_tick(self):
-        button = self.mouse_button_input.currentText()
-        self.mouse_backend.click(button)
 
 
 
