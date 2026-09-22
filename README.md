@@ -7,7 +7,7 @@ The application is designed to provide simple, reliable mouse automation while k
 
 ## Current status
 
-**Linux beta — active development.** (school just strated so updates are going to be slow)
+**Linux beta — active development.** (school just started so updates are going to be slow)
 
 The current Linux version includes:
 
