@@ -1,0 +1,302 @@
+
+/* ==========================================
+   GANDER STUDIO — AUTOCLICKER
+
+   Colors:
+   Cream       #F3E7D0
+   Dark green  #25291C
+   Light cream #FAF4E7
+   Accent      #E6E49F
+   Brown       #A8794F
+   ========================================== */
+
+
+/* ==========================================
+   1. GENERAL
+   ========================================== */
+
+QMainWindow,
+QDialog {
+    background-color: #F3E7D0;
+}
+
+QWidget {
+    font-family: "DejaVu Sans", sans-serif;
+    font-size: 13px;
+    color: #25291C;
+}
+
+
+/* ==========================================
+   2. MAIN WINDOW — HEADER
+   ========================================== */
+
+QLabel#eyebrow {
+    color: #A8794F;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QLabel#title {
+    color: #25291C;
+    font-size: 24px;
+    font-weight: bold;
+}
+
+QLabel#subtitle {
+    color: #656A59;
+    font-size: 12px;
+}
+
+
+/* ==========================================
+   3. MAIN WINDOW — SETTINGS PANEL
+   ========================================== */
+
+QFrame#panel {
+    background-color: #FAF4E7;
+
+    border: 1px solid #D5D0BA;
+    border-radius: 12px;
+}
+
+
+/* ==========================================
+   4. MAIN WINDOW — INPUT FIELDS
+   ========================================== */
+
+QSpinBox,
+QComboBox {
+    background-color: #F3E7D0;
+    color: #25291C;
+
+    border: 1px solid #CCCFB0;
+    border-radius: 7px;
+
+    padding: 7px 10px;
+    min-height: 24px;
+}
+
+QSpinBox:focus,
+QComboBox:focus {
+    border: 1px solid #A8794F;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 24px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #FAF4E7;
+    color: #25291C;
+
+    selection-background-color: #CCCFB0;
+    selection-color: #25291C;
+}
+
+
+/* ==========================================
+   5. BUTTONS — GENERAL
+   ========================================== */
+
+QPushButton {
+    background-color: #FAF4E7;
+    color: #25291C;
+
+    border: 1px solid #CCCFB0;
+    border-radius: 7px;
+
+    padding: 8px 14px;
+    min-height: 20px;
+}
+
+QPushButton:hover {
+    background-color: #E6E49F;
+}
+
+QPushButton:pressed {
+    background-color: #CCCFB0;
+}
+
+QPushButton:disabled {
+    background-color: #E8E2D5;
+    color: #929487;
+}
+
+
+/* ==========================================
+   6. MAIN WINDOW — START / STOP
+   ========================================== */
+
+QPushButton#primary {
+    background-color: #25291C;
+    color: #F3E7D0;
+
+    border: none;
+    border-radius: 9px;
+
+    padding: 12px;
+    font-size: 14px;
+    font-weight: bold;
+}
+
+QPushButton#primary:hover {
+    background-color: #414834;
+}
+
+QPushButton#primary:pressed {
+    background-color: #A8794F;
+}
+
+QPushButton#primary:disabled {
+    background-color: #CCCFB0;
+    color: #656A59;
+}
+
+
+/* ==========================================
+   7. MAIN WINDOW — SECONDARY BUTTON
+   ========================================== */
+
+QPushButton#secondary {
+    background-color: transparent;
+    color: #25291C;
+
+    border: 1px solid #CCCFB0;
+    border-radius: 7px;
+
+    padding: 6px 10px;
+}
+
+QPushButton#secondary:hover {
+    background-color: #E6E49F;
+}
+
+QPushButton#secondary:disabled {
+    color: #929487;
+}
+
+
+/* ==========================================
+   8. MAIN WINDOW — STATUS AND FOOTER
+   ========================================== */
+
+QLabel#status {
+    color: #516044;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+QLabel#footer {
+    color: #858675;
+    font-size: 11px;
+}
+
+
+/* ==========================================
+   9. SHORTCUT DIALOG — WINDOW
+   ========================================== */
+
+QDialog#shortcutDialog {
+    background-color: #F3E7D0;
+    color: #25291C;
+}
+
+QDialog#shortcutDialog QLabel {
+    background-color: transparent;
+    color: #25291C;
+
+    font-size: 13px;
+}
+
+
+/* ==========================================
+   10. SHORTCUT DIALOG — KEY INPUT
+   ========================================== */
+
+QKeySequenceEdit#shortcutEditor {
+    background-color: #FAF4E7;
+    color: #25291C;
+
+    border: 1px solid #CCCFB0;
+    border-radius: 7px;
+
+    padding: 6px 10px;
+    min-height: 28px;
+}
+
+QKeySequenceEdit#shortcutEditor:focus {
+    border: 1px solid #A8794F;
+}
+
+/* Internal text input */
+
+QKeySequenceEdit#shortcutEditor QLineEdit {
+    background-color: transparent;
+    color: #25291C;
+
+    border: none;
+    padding: 0px;
+
+    selection-background-color: #E6E49F;
+    selection-color: #25291C;
+}
+
+
+/* ==========================================
+   11. SHORTCUT DIALOG — CANCEL BUTTON
+   ========================================== */
+
+QPushButton#shortcutCancel {
+    background-color: #FAF4E7;
+    color: #25291C;
+
+    border: 1px solid #CCCFB0;
+    border-radius: 7px;
+
+    padding: 8px 18px;
+    min-height: 24px;
+}
+
+QPushButton#shortcutCancel:hover {
+    background-color: #E6E49F;
+}
+
+QPushButton#shortcutCancel:pressed {
+    background-color: #CCCFB0;
+}
+
+
+/* ==========================================
+   12. SHORTCUT DIALOG — SAVE BUTTON
+   ========================================== */
+
+QPushButton#shortcutSave {
+    background-color: #25291C;
+    color: #F3E7D0;
+
+    border: 1px solid #25291C;
+    border-radius: 7px;
+
+    padding: 8px 18px;
+    min-height: 24px;
+
+    font-weight: bold;
+}
+
+QPushButton#shortcutSave:hover {
+    background-color: #414834;
+    border-color: #414834;
+}
+
+QPushButton#shortcutSave:pressed {
+    background-color: #A8794F;
+    border-color: #A8794F;
+}
+
+QPushButton#shortcutSave:disabled {
+    background-color: #CCCFB0;
+    color: #656A59;
+    border-color: #CCCFB0;
+}
