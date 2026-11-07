@@ -1,11 +1,8 @@
 
-import ast
 import os
-import re
 import shlex
 import socket
 import stat
-import subprocess
 import sys
 
 from pathlib import Path
@@ -39,7 +36,7 @@ def send_toggle():
         return 1
 
 
-# GNOME runs this lightweight client when the shortcut is pressed.
+# Desktops run this lightweight client when the shortcut is pressed.
 # No Qt application or virtual mouse is created in client mode.
 
 if __name__ == "__main__" and "--toggle" in sys.argv:
@@ -51,7 +48,7 @@ if __name__ == "__main__" and "--toggle" in sys.argv:
 # =====================================================
 
 from PySide6.QtCore import Qt, QTimer, QSettings, Slot
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QColor, QKeySequence, QPalette
 from PySide6.QtNetwork import QLocalServer
 
 from PySide6.QtWidgets import (
@@ -59,8 +56,9 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFormLayout,
     QFrame,
+    QGridLayout,
+    QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
     QMainWindow,
@@ -73,206 +71,108 @@ from PySide6.QtWidgets import (
 
 from linux_mouse import LinuxMouseBackend
 
-
-# =====================================================
-# GNOME SHORTCUT CONFIGURATION
-# =====================================================
-
-GNOME_SCHEMA = (
-    "org.gnome.settings-daemon.plugins.media-keys"
+from linux_hotkeys import (
+    Hotkey,
+    ManualBackend,
+    ShortcutError,
+    start_shortcut,
 )
 
-CUSTOM_SCHEMA = GNOME_SCHEMA + ".custom-keybinding"
 
-CUSTOM_PATH = (
-    "/org/gnome/settings-daemon/plugins/media-keys/"
-    "custom-keybindings/gander-autoclicker/"
-)
+# =====================================================
+# GLOBAL SHORTCUT
+# =====================================================
 
-SHORTCUT_SCHEMA = f"{CUSTOM_SCHEMA}:{CUSTOM_PATH}"
+DEFAULT_HOTKEY = "F6"
 
+# Command that desktops run when the shortcut is pressed. It only sends
+# "toggle" to the running app through the local socket.
 
-def gsettings(*arguments):
-    result = subprocess.run(
-        ["gsettings", *arguments],
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=5,
-    )
-
-    return result.stdout.strip()
+TOGGLE_COMMAND = shlex.join([
+    sys.executable,
+    str(Path(__file__).resolve()),
+    "--toggle",
+])
 
 
-def read_shortcut_list():
-    value = gsettings(
-        "get",
-        GNOME_SCHEMA,
-        "custom-keybindings",
-    )
+# =====================================================
+# UI HELPERS
+# =====================================================
 
-    if value == "@as []":
-        return []
-
-    return ast.literal_eval(value)
+# Friendlier names on the shortcut key caps.
+KEY_LABELS = {
+    "Meta": "Super",
+    "Return": "Enter",
+}
 
 
-def read_gnome_shortcut():
-    value = gsettings(
-        "get",
-        SHORTCUT_SCHEMA,
-        "binding",
-    )
-
-    return ast.literal_eval(value)
+def section_label(text):
+    label = QLabel(text)
+    label.setObjectName("sectionLabel")
+    return label
 
 
-def to_gnome_accelerator(sequence):
-    text = sequence.toString(
-        QKeySequence.SequenceFormat.PortableText
-    )
+def set_style_property(widget, name, value):
+    """Set a property used by style.qss and re-apply the style."""
 
-    if not text:
-        raise ValueError("Choose a keyboard shortcut.")
+    widget.setProperty(name, value)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
 
-    parts = text.split("+")
 
-    if len(parts) > 4:
-        raise ValueError("Too many modifiers.")
+def apply_theme(app):
+    """
+    Fusion + a dark palette gives the same look on every distro and
+    desktop; style.qss adds the Gander Studio details on top.
+    """
 
-    modifiers = {
-        "Ctrl": "<Control>",
-        "Alt": "<Alt>",
-        "Shift": "<Shift>",
-        "Meta": "<Super>",
+    app.setStyle("Fusion")
+
+    palette = QPalette()
+
+    colors = {
+        QPalette.ColorRole.Window: "#11130D",
+        QPalette.ColorRole.WindowText: "#F3E7D0",
+        QPalette.ColorRole.Base: "#202417",
+        QPalette.ColorRole.AlternateBase: "#1A1D14",
+        QPalette.ColorRole.Text: "#F3E7D0",
+        QPalette.ColorRole.Button: "#202417",
+        QPalette.ColorRole.ButtonText: "#F3E7D0",
+        QPalette.ColorRole.Highlight: "#D98C3F",
+        QPalette.ColorRole.HighlightedText: "#11130D",
+        QPalette.ColorRole.ToolTipBase: "#202417",
+        QPalette.ColorRole.ToolTipText: "#F3E7D0",
+        QPalette.ColorRole.PlaceholderText: "#8A8D72",
+        QPalette.ColorRole.Link: "#D98C3F",
     }
 
-    key = parts[-1]
+    for role, color in colors.items():
+        palette.setColor(role, QColor(color))
 
-    if not key:
-        raise ValueError("Choose a valid key.")
-
-    function_key = re.fullmatch(
-        r"F(?:[1-9]|1[0-9]|2[0-4])",
-        key,
-    )
-
-    if not function_key and len(parts) == 1:
-        raise ValueError(
-            "Use a function key or a shortcut with modifiers."
-        )
-
-    if not (
-        function_key
-        or (len(key) == 1 and key.isalnum())
-        or key in ("Space", "Return", "Esc")
+    for role in (
+        QPalette.ColorRole.WindowText,
+        QPalette.ColorRole.Text,
+        QPalette.ColorRole.ButtonText,
     ):
-        raise ValueError(
-            "Use F1-F24, or a letter/number with modifiers."
+        palette.setColor(
+            QPalette.ColorGroup.Disabled,
+            role,
+            QColor("#5A5D4A"),
         )
 
-    prefix = ""
+    app.setPalette(palette)
 
-    for modifier in parts[:-1]:
-        if modifier not in modifiers:
-            raise ValueError(
-                f"Unsupported modifier: {modifier}"
-            )
+    # Load the visual details from style.qss.
 
-        prefix += modifiers[modifier]
+    style_path = Path(__file__).with_name("style.qss")
 
-    key_names = {
-        "Space": "space",
-        "Esc": "Escape",
-    }
+    if style_path.exists():
+        assets = Path(__file__).with_name("assets").as_posix()
 
-    return prefix + key_names.get(key, key)
-
-
-def to_display_shortcut(accelerator):
-    modifiers = {
-        "Control": "Ctrl",
-        "Primary": "Ctrl",
-        "Shift": "Shift",
-        "Alt": "Alt",
-        "Super": "Meta",
-    }
-
-    def replace_modifier(match):
-        name = match.group(1)
-        return modifiers.get(name, name) + "+"
-
-    return re.sub(
-        r"<([^>]+)>",
-        replace_modifier,
-        accelerator,
-    )
-
-
-def install_gnome_shortcut():
-    shortcuts = read_shortcut_list()
-
-    command = shlex.join([
-        sys.executable,
-        str(Path(__file__).resolve()),
-        "--toggle",
-    ])
-
-    # Create our shortcut without overwriting existing shortcuts.
-
-    if CUSTOM_PATH not in shortcuts:
-        shortcuts.append(CUSTOM_PATH)
-
-        gsettings(
-            "set",
-            SHORTCUT_SCHEMA,
-            "name",
-            repr("Gander AutoClicker"),
+        app.setStyleSheet(
+            style_path.read_text(encoding="utf-8")
+            .replace("@ASSETS@", assets)
         )
-
-        gsettings(
-            "set",
-            SHORTCUT_SCHEMA,
-            "command",
-            repr(command),
-        )
-
-        gsettings(
-            "set",
-            SHORTCUT_SCHEMA,
-            "binding",
-            repr("F6"),
-        )
-
-        gsettings(
-            "set",
-            GNOME_SCHEMA,
-            "custom-keybindings",
-            repr(shortcuts),
-        )
-
-    else:
-        # Keep the command updated if the project location changes.
-
-        gsettings(
-            "set",
-            SHORTCUT_SCHEMA,
-            "command",
-            repr(command),
-        )
-
-    return read_gnome_shortcut()
-
-
-def save_gnome_shortcut(accelerator):
-    gsettings(
-        "set",
-        SHORTCUT_SCHEMA,
-        "binding",
-        repr(accelerator),
-    )
-
-    return read_gnome_shortcut()
 
 
 # =====================================================
@@ -289,8 +189,8 @@ class MainWindow(QMainWindow):
         self.mouse_backend = None
 
         self.setWindowTitle("Gander AutoClicker")
-        self.resize(430, 430)
-        self.setMinimumWidth(390)
+        self.resize(440, 460)
+        self.setMinimumWidth(400)
 
         # -------------------------------------------------
         # Settings
@@ -317,7 +217,7 @@ class MainWindow(QMainWindow):
         # Header
         # -------------------------------------------------
 
-        eyebrow = QLabel("GANDER STUDIO / UTILITY")
+        eyebrow = QLabel("GANDER STUDIO  /  UTILITY")
         eyebrow.setObjectName("eyebrow")
 
         title = QLabel("Gander AutoClicker")
@@ -328,9 +228,14 @@ class MainWindow(QMainWindow):
         )
         subtitle.setObjectName("subtitle")
 
-        layout.addWidget(eyebrow)
-        layout.addWidget(title)
-        layout.addWidget(subtitle)
+        header = QVBoxLayout()
+        header.setSpacing(4)
+        header.addWidget(eyebrow)
+        header.addWidget(title)
+        header.addWidget(subtitle)
+
+        layout.addLayout(header)
+        layout.addSpacing(4)
 
         # -------------------------------------------------
         # Settings panel
@@ -340,33 +245,29 @@ class MainWindow(QMainWindow):
         panel.setObjectName("panel")
 
         panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(16, 16, 16, 16)
+        panel_layout.setContentsMargins(18, 16, 18, 18)
         panel_layout.setSpacing(12)
 
-        form = QFormLayout()
-        form.setSpacing(12)
+        # Clicking section
 
-        # CPS
+        panel_layout.addWidget(section_label("CLICKING"))
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(10)
+        form.setColumnStretch(0, 1)
 
         self.cps_input = QSpinBox()
         self.cps_input.setRange(1, 500)
+        self.cps_input.setSuffix("  CPS")
+        self.cps_input.setFixedWidth(150)
 
-        saved_cps = self.settings.value(
-            "cps",
-            10,
-            type=int,
+        self.cps_input.setValue(
+            self.settings.value("cps", 10, type=int)
         )
-
-        self.cps_input.setValue(saved_cps)
-
-        form.addRow(
-            "Clicks per second",
-            self.cps_input,
-        )
-
-        # Mouse button
 
         self.mouse_button_input = QComboBox()
+        self.mouse_button_input.setFixedWidth(150)
 
         self.mouse_button_input.addItems([
             "Left",
@@ -374,54 +275,67 @@ class MainWindow(QMainWindow):
             "Middle",
         ])
 
-        saved_button = self.settings.value(
-            "mouse_button",
-            "Left",
-            type=str,
-        )
-
         self.mouse_button_input.setCurrentText(
-            saved_button
+            self.settings.value("mouse_button", "Left", type=str)
         )
 
-        form.addRow(
-            "Mouse button",
-            self.mouse_button_input,
-        )
+        for row, (text, field) in enumerate([
+            ("Clicks per second", self.cps_input),
+            ("Mouse button", self.mouse_button_input),
+        ]):
+            label = QLabel(text)
+            label.setObjectName("fieldLabel")
+
+            form.addWidget(label, row, 0, Qt.AlignmentFlag.AlignVCenter)
+            form.addWidget(field, row, 1, Qt.AlignmentFlag.AlignRight)
 
         panel_layout.addLayout(form)
 
-        # -------------------------------------------------
-        # Global hotkey
-        # -------------------------------------------------
+        divider = QFrame()
+        divider.setObjectName("divider")
 
-        self.hotkey_label = QLabel(
-            "Configuring global shortcut..."
-        )
+        panel_layout.addSpacing(4)
+        panel_layout.addWidget(divider)
+        panel_layout.addSpacing(4)
 
-        self.hotkey_label.setWordWrap(True)
+        # Global shortcut section
 
-        self.configure_button = QPushButton(
-            "Configure shortcut"
-        )
+        panel_layout.addWidget(section_label("GLOBAL SHORTCUT"))
 
-        self.configure_button.setObjectName(
-            "secondary"
-        )
+        shortcut_row = QHBoxLayout()
+        shortcut_row.setSpacing(10)
 
+        # Filled with key caps by show_shortcut().
+        self.keys_layout = QHBoxLayout()
+        self.keys_layout.setSpacing(5)
+
+        self.backend_tag = QLabel()
+        self.backend_tag.setObjectName("backendTag")
+
+        self.configure_button = QPushButton("Change")
+        self.configure_button.setObjectName("secondary")
         self.configure_button.setEnabled(False)
-
-        panel_layout.addWidget(
-            QLabel("Global shortcut")
+        self.configure_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
         )
 
-        panel_layout.addWidget(
-            self.hotkey_label
+        shortcut_row.addLayout(self.keys_layout)
+        shortcut_row.addWidget(self.backend_tag)
+        shortcut_row.addStretch()
+        shortcut_row.addWidget(self.configure_button)
+
+        panel_layout.addLayout(shortcut_row)
+
+        self.hint_label = QLabel()
+        self.hint_label.setObjectName("hint")
+        self.hint_label.setWordWrap(True)
+        self.hint_label.hide()
+
+        self.hint_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        panel_layout.addWidget(
-            self.configure_button
-        )
+        panel_layout.addWidget(self.hint_label)
 
         layout.addWidget(panel)
 
@@ -429,37 +343,37 @@ class MainWindow(QMainWindow):
         # Start / Stop
         # -------------------------------------------------
 
-        self.state_button = QPushButton("Start")
+        self.state_button = QPushButton("Start clicking")
         self.state_button.setObjectName("primary")
+        self.state_button.setCursor(
+            Qt.CursorShape.PointingHandCursor
+        )
 
         layout.addWidget(self.state_button)
-
-        # -------------------------------------------------
-        # Status
-        # -------------------------------------------------
-
-        self.status_label = QLabel("● Ready")
-        self.status_label.setObjectName("status")
-
-        layout.addWidget(self.status_label)
 
         layout.addStretch()
 
         # -------------------------------------------------
-        # Footer
+        # Status and footer
         # -------------------------------------------------
 
-        footer = QLabel(
-            "GANDER STUDIO  ·  LINUX BETA"
-        )
+        self.status_label = QLabel()
+        self.status_label.setObjectName("status")
 
+        footer = QLabel("LINUX BETA")
         footer.setObjectName("footer")
 
-        footer.setAlignment(
-            Qt.AlignmentFlag.AlignCenter
-        )
+        bottom = QHBoxLayout()
+        bottom.addWidget(self.status_label)
+        bottom.addStretch()
+        bottom.addWidget(footer)
 
-        layout.addWidget(footer)
+        layout.addLayout(bottom)
+
+        self.set_status("Ready")
+
+        # Don't start with the CPS field focused.
+        self.state_button.setFocus()
 
         # -------------------------------------------------
         # Clicking timer
@@ -489,8 +403,9 @@ class MainWindow(QMainWindow):
         except Exception as error:
             self.state_button.setEnabled(False)
 
-            self.status_label.setText(
-                f"Linux input unavailable: {error}"
+            self.set_status(
+                f"Mouse input unavailable: {error}",
+                "error",
             )
 
         # -------------------------------------------------
@@ -519,22 +434,13 @@ class MainWindow(QMainWindow):
             )
 
         # -------------------------------------------------
-        # Configure GNOME shortcut
+        # Configure global shortcut
         # -------------------------------------------------
 
-        try:
-            accelerator = install_gnome_shortcut()
+        self.shortcut_backend = None
+        self.hotkey = None
 
-            self.hotkey_label.setText(
-                f"{to_display_shortcut(accelerator)} · Global"
-            )
-
-            self.configure_button.setEnabled(True)
-
-        except Exception as error:
-            self.hotkey_label.setText(
-                f"Global shortcut unavailable: {error}"
-            )
+        self.start_global_shortcut()
 
         # -------------------------------------------------
         # Signal connections
@@ -651,22 +557,34 @@ class MainWindow(QMainWindow):
         self.is_running = not self.is_running
 
         if self.is_running:
-            self.state_button.setText("Stop")
-
-            self.status_label.setText(
-                "● Clicking"
-            )
-
             self.click_timer.start()
-
         else:
             self.click_timer.stop()
 
-            self.state_button.setText("Start")
+        self.state_button.setText(
+            "Stop clicking" if self.is_running else "Start clicking"
+        )
 
-            self.status_label.setText(
-                "● Ready"
+        set_style_property(
+            self.state_button,
+            "running",
+            self.is_running,
+        )
+
+        self.update_running_status()
+
+    def update_running_status(self):
+        if self.is_running:
+            self.set_status(
+                f"Clicking · {self.cps_input.value()} CPS",
+                "running",
             )
+        else:
+            self.set_status("Ready")
+
+    def set_status(self, text, state="ready"):
+        self.status_label.setText(f"●  {text}")
+        set_style_property(self.status_label, "state", state)
 
     # =====================================================
     # MOUSE CLICKING
@@ -683,95 +601,180 @@ class MainWindow(QMainWindow):
     # CONFIGURE GLOBAL SHORTCUT
     # =====================================================
 
+    def start_global_shortcut(self):
+        try:
+            requested = Hotkey.parse(
+                self.settings.value(
+                    "hotkey",
+                    DEFAULT_HOTKEY,
+                    type=str,
+                )
+            )
+        except ShortcutError:
+            requested = Hotkey.parse(DEFAULT_HOTKEY)
+
+        backend, active, notes = start_shortcut(
+            requested,
+            TOGGLE_COMMAND,
+            self.on_shortcut_activated,
+            self.on_shortcut_status,
+        )
+
+        self.shortcut_backend = backend
+        self.hotkey = active
+
+        if active:
+            self.settings.setValue("hotkey", active.text())
+
+        self.show_shortcut(
+            active.text() if active else "Not set",
+            notes[-1] if notes and not active else "",
+        )
+
+        self.configure_button.setEnabled(
+            backend.configurable
+            or hasattr(backend, "open_settings")
+        )
+
+        if not backend.configurable:
+            self.configure_button.setText("Settings")
+
+        if isinstance(backend, ManualBackend):
+            self.configure_button.hide()
+
+    def show_shortcut(self, text, note=""):
+        # Remove the previous key caps.
+        while self.keys_layout.count():
+            item = self.keys_layout.takeAt(0)
+
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Show a real shortcut as key caps, anything else as text.
+        try:
+            keys = Hotkey.parse(text).text().split("+")
+        except ShortcutError:
+            keys = None
+
+        if keys:
+            for index, key in enumerate(keys):
+                if index:
+                    plus = QLabel("+")
+                    plus.setObjectName("keyPlus")
+                    self.keys_layout.addWidget(plus)
+
+                cap = QLabel(KEY_LABELS.get(key, key))
+                cap.setObjectName("keyCap")
+                self.keys_layout.addWidget(cap)
+        else:
+            label = QLabel(text)
+            label.setObjectName("shortcutText")
+            self.keys_layout.addWidget(label)
+
+        self.backend_tag.setText(
+            f"via {self.shortcut_backend.name}"
+        )
+
+        hint = "\n".join(
+            part
+            for part in (note, self.shortcut_backend.hint())
+            if part
+        )
+
+        self.hint_label.setText(hint)
+        self.hint_label.setVisible(bool(hint))
+
+        self.state_button.setToolTip(
+            f"Global shortcut: {text}" if keys else ""
+        )
+
+    @Slot()
+    def on_shortcut_activated(self):
+        if not self.is_configuring_shortcut:
+            self.toggle_autoclicker()
+
+    @Slot(str)
+    def on_shortcut_status(self, text):
+        self.show_shortcut(text)
+
     def configure_shortcut(self):
+        backend = self.shortcut_backend
+
+        if not backend.configurable:
+            # The desktop owns the shortcut (XDG portal).
+            try:
+                backend.open_settings()
+            except Exception as error:
+                QMessageBox.information(
+                    self,
+                    "Shortcut configuration",
+                    str(error),
+                )
+            return
+
         self.is_configuring_shortcut = True
 
         try:
-            current = read_gnome_shortcut()
-
-            # ---------------------------------------------
-            # Dialog
-            # ---------------------------------------------
-
             dialog = QDialog(self)
-
-            dialog.setObjectName(
-                "shortcutDialog"
-            )
-
-            dialog.setWindowTitle(
-                "Configure global shortcut"
-            )
-
-            dialog.setMinimumWidth(340)
+            dialog.setObjectName("shortcutDialog")
+            dialog.setWindowTitle("Global shortcut")
+            dialog.setMinimumWidth(360)
 
             dialog_layout = QVBoxLayout(dialog)
-            dialog_layout.setSpacing(14)
+            dialog_layout.setContentsMargins(22, 20, 22, 18)
+            dialog_layout.setSpacing(10)
 
-            # ---------------------------------------------
-            # Instructions
-            # ---------------------------------------------
+            heading = QLabel("Change global shortcut")
+            heading.setObjectName("dialogTitle")
 
             instruction = QLabel(
-                "Press the new keyboard shortcut:"
+                "Press the keys you want to use to start "
+                "and stop clicking."
             )
-
-            dialog_layout.addWidget(instruction)
-
-            # ---------------------------------------------
-            # Shortcut editor
-            # ---------------------------------------------
+            instruction.setObjectName("hint")
+            instruction.setWordWrap(True)
 
             editor = QKeySequenceEdit()
-
-            editor.setObjectName(
-                "shortcutEditor"
-            )
-
+            editor.setObjectName("shortcutEditor")
             editor.setMaximumSequenceLength(1)
 
-            editor.setKeySequence(
-                QKeySequence(
-                    to_display_shortcut(current)
+            if self.hotkey:
+                editor.setKeySequence(
+                    QKeySequence(self.hotkey.text())
                 )
+
+            rules = QLabel(
+                "Use F1–F24, or a letter or number "
+                "combined with Ctrl, Alt, Shift or Super."
             )
-
-            dialog_layout.addWidget(editor)
-
-            # ---------------------------------------------
-            # Save / Cancel buttons
-            # ---------------------------------------------
+            rules.setObjectName("hint")
+            rules.setWordWrap(True)
 
             buttons = QDialogButtonBox(
                 QDialogButtonBox.StandardButton.Save
                 | QDialogButtonBox.StandardButton.Cancel
             )
 
-            save_button = buttons.button(
+            buttons.button(
                 QDialogButtonBox.StandardButton.Save
-            )
+            ).setObjectName("shortcutSave")
 
-            save_button.setObjectName(
-                "shortcutSave"
-            )
-
-            cancel_button = buttons.button(
+            buttons.button(
                 QDialogButtonBox.StandardButton.Cancel
-            )
+            ).setObjectName("shortcutCancel")
 
-            cancel_button.setObjectName(
-                "shortcutCancel"
-            )
+            buttons.accepted.connect(dialog.accept)
+            buttons.rejected.connect(dialog.reject)
 
-            buttons.accepted.connect(
-                dialog.accept
-            )
-
-            buttons.rejected.connect(
-                dialog.reject
-            )
-
+            dialog_layout.addWidget(heading)
+            dialog_layout.addWidget(instruction)
+            dialog_layout.addSpacing(4)
+            dialog_layout.addWidget(editor)
+            dialog_layout.addWidget(rules)
+            dialog_layout.addSpacing(8)
             dialog_layout.addWidget(buttons)
+
+            editor.setFocus()
 
             # ---------------------------------------------
             # Handle dialog result
@@ -781,46 +784,17 @@ class MainWindow(QMainWindow):
                 return
 
             try:
-                accelerator = to_gnome_accelerator(
-                    editor.keySequence()
-                )
-
-                # Check existing custom shortcuts.
-
-                for path in read_shortcut_list():
-                    if path == CUSTOM_PATH:
-                        continue
-
-                    schema = f"{CUSTOM_SCHEMA}:{path}"
-
-                    existing = gsettings(
-                        "get",
-                        schema,
-                        "binding",
+                requested = Hotkey.parse(
+                    editor.keySequence().toString(
+                        QKeySequence.SequenceFormat.PortableText
                     )
-
-                    if ast.literal_eval(existing) == accelerator:
-                        raise ValueError(
-                            "This shortcut is already used by "
-                            "another custom GNOME shortcut."
-                        )
-
-                # Save the new shortcut.
-
-                saved = save_gnome_shortcut(
-                    accelerator
                 )
 
-                if saved != accelerator:
-                    raise RuntimeError(
-                        "GNOME did not save the requested shortcut."
-                    )
+                saved = backend.change(requested, self.hotkey)
 
-                # Update the displayed shortcut.
-
-                self.hotkey_label.setText(
-                    f"{to_display_shortcut(saved)} · Global"
-                )
+                self.hotkey = saved
+                self.settings.setValue("hotkey", saved.text())
+                self.show_shortcut(saved.text())
 
             except Exception as error:
                 QMessageBox.warning(
@@ -828,13 +802,6 @@ class MainWindow(QMainWindow):
                     "Shortcut unavailable",
                     str(error),
                 )
-
-        except Exception as error:
-            QMessageBox.warning(
-                self,
-                "Shortcut configuration",
-                str(error),
-            )
 
         finally:
             self.is_configuring_shortcut = False
@@ -844,6 +811,9 @@ class MainWindow(QMainWindow):
     # =====================================================
 
     def update_timer(self, cps):
+        if self.is_running:
+            self.update_running_status()
+
         new_interval = max(
             1,
             round(1000 / cps),
@@ -874,6 +844,9 @@ class MainWindow(QMainWindow):
 
         self.shortcut_server.close()
 
+        if self.shortcut_backend:
+            self.shortcut_backend.stop()
+
         if self.mouse_backend:
             self.mouse_backend.close()
 
@@ -894,16 +867,7 @@ app.setApplicationName(
     "Gander AutoClicker"
 )
 
-# Load all visual styling from style.qss.
-
-style_path = Path(__file__).with_name(
-    "style.qss"
-)
-
-if style_path.exists():
-    app.setStyleSheet(
-        style_path.read_text(encoding="utf-8")
-    )
+apply_theme(app)
 
 window = MainWindow()
 window.show()
